@@ -47,30 +47,47 @@ bool SynchronizedMove(int32_t distance);
 void PrintAlerts();
 void HandleAlerts();
 
+
+/*------------------------------------------------------------------------------
+ * Main
+ *
+ *    Main loop, reads analog input of SUM, deltaX, deltaY
+ *		 checks if laser position is within x and y tolerance
+ *               calls move motor if out of tolerance, alternates starting with x and y
+ *               loops every 1 second 
+ *    
+ *
+ * Parameters:
+ *    None
+ *
+ * Returns: 
+ *    None
+ */
 int main() {
 
     // Set the resolution of the ADC.
     AdcMgr.AdcResolution(adcResolution);
 
     double inputVoltageSUM, inputVoltageY, inputVoltageX = 0.0;
-    bool Xflag = true;
-    inputVoltageSUM, inputVoltageY, inputVoltageX = readAnalogInputs();
+    bool LevelFlag = false;	//Used to set level position of first iteration of loop
+    bool Xflag = true;	//Used to determine which axis to move first
     double LevelX, LevelY, Xpos, Ypos = 0.0;
  
     while (true) {
 
         double inputVoltageSUM, inputVoltageY, inputVoltageX = 0.0;
-        inputVoltageSUM, inputVoltageY, inputVoltageX = readAnalogInputs();
+        inputVoltageSUM, inputVoltageY, inputVoltageX = readAnalogInputs();	//Read analog input from sensor
 
-        if (leveling) {
-            if (LevelX == 0.0 || LevelY == 0.0) {
-                LevelX = inputVoltageX;
-                LevelY = inputVoltageY;
+        if (leveling) {	//Once switch has been set to the on position the bed is level, enter automated leveling state
+            if (LevelFlag==false) {	//If either level flag is false calibrate level position to be compared to new level data and set flag to true
+                LevelX = (Lx * inputVoltageX) / (2.0 * inputVoltageSUM);	//Set LevelX sensor position
+                LevelY = (Ly * inputVoltageY) / (2.0 * inputVoltageSUM);	//Set LevelY sensor position
+		LevelFlag = true;
             }
     
 
-            Xpos = (Lx * inputVoltageX) / (2.0 * inputVoltageSUM);
-            Ypos = (Ly * inputVoltageY) / (2.0 * inputVoltageSUM);
+            Xpos = (Lx * inputVoltageX) / (2.0 * inputVoltageSUM);	//New laser position for X
+            Ypos = (Ly * inputVoltageY) / (2.0 * inputVoltageSUM);	//New laser postioin for Y
 
             if (Xflag) { // If Xflag is true move X axis first
                 if (Xpos > LevelX + Xtol) { // If Xpos is greater than LevelX + Xtol
@@ -97,15 +114,27 @@ int main() {
                     MoveDistanceX((LevelX - Xpos) / delta);
                 }
             }
-        }
-        Xflag = !Xflag; // Switch flag for next iteration
-
+            Xflag = !Xflag; // Switch flag for next iteration
+	}
  
-        // Wait a 1 second before the next reading.
-        Delay_ms(1000);
+        Delay_ms(1000);		// Wait a 1 second before the next reading.
     }
 }
 
+/*------------------------------------------------------------------------------
+ * ReadAnalogInputs
+ *
+ *    Used to get voltages from A9-A12
+ *   
+ *
+ * Parameters:
+ *    None
+ *
+ * Returns:
+ *    SUM voltage
+ *    X voltage
+ *    Y voltage
+ */
 double readAnalogInputs() {
     // Read the analog input (A-9 through A-12 may be configured as analog
         // inputs).
@@ -122,87 +151,6 @@ double readAnalogInputs() {
         double inputVoltageX = 10.0 * adcX / ((1 << adcResolution) - 1);
 
     return inputVoltageSUM, inputVoltageY, inputVoltageX;
-}
-
-
-int main() {
-    // Sets the input clocking rate. This normal rate is ideal for ClearPath
-    // step and direction applications.
-    MotorMgr.MotorInputClocking(MotorManager::CLOCK_RATE_NORMAL);
- 
-    // Sets all motor connectors into step and direction mode.
-    MotorMgr.MotorModeSet(MotorManager::MOTOR_ALL,
-                          Connector::CPM_MODE_STEP_AND_DIR);
- 
-    // Set the motor's HLFB mode to bipolar PWM
-    motorX.HlfbMode(MotorDriver::HLFB_MODE_HAS_BIPOLAR_PWM);
-    motorY.HlfbMode(MotorDriver::HLFB_MODE_HAS_BIPOLAR_PWM);
-    // Set the HFLB carrier frequency to 482 Hz
-    motorX.HlfbCarrier(MotorDriver::HLFB_CARRIER_482_HZ);
-    motorY.HlfbCarrier(MotorDriver::HLFB_CARRIER_482_HZ);
- 
-    // Sets the maximum velocity for each move
-    motorX.VelMax(velocityLimit);
-    motorY.VelMax(velocityLimit);
- 
-    // Set the maximum acceleration for each move
-    motorX.AccelMax(accelerationLimit);
-    motorY.AccelMax(accelerationLimit);
- 
-    // Sets up serial communication and waits up to 5 seconds for a port to open.
-    // Serial communication is not required for this example to run.
-    SerialPort.Mode(Connector::USB_CDC);
-    SerialPort.Speed(baudRate);
-    uint32_t timeout = 5000;
-    uint32_t startTime = Milliseconds();
-    SerialPort.PortOpen();
-    while (!SerialPort && Milliseconds() - startTime < timeout) {
-        continue;
-    }
- 
-    // Enables the motor; homing will begin automatically if enabled
-    motor.EnableRequest(true);
-    SerialPort.SendLine("Motor Enabled");
- 
-    // Waits for HLFB to assert (waits for homing to complete if applicable)
-    SerialPort.SendLine("Waiting for HLFB...");
-    while (motor.HlfbState() != MotorDriver::HLFB_ASSERTED &&
-            !motor.StatusReg().bit.AlertsPresent) {
-        continue;
-    }
-    // Check if motor alert occurred during enabling
-    // Clear alert if configured to do so 
-    if (motor.StatusReg().bit.AlertsPresent) {
-        SerialPort.SendLine("Motor alert detected.");       
-        PrintAlerts();
-        if(HANDLE_ALERTS){
-            HandleAlerts();
-        } else {
-            SerialPort.SendLine("Enable automatic alert handling by setting HANDLE_ALERTS to 1.");
-        }
-        SerialPort.SendLine("Enabling may not have completed as expected. Proceed with caution.");      
-        SerialPort.SendLine();
-    } else {
-        SerialPort.SendLine("Motor Ready"); 
-    }
- 
-    while (true) {
-        // Move 6400 counts (positive direction), then wait 2000ms
-        MoveDistance(6400);
-        Delay_ms(2000);
-        // Move 19200 counts farther positive, then wait 2000ms
-        MoveDistance(19200);
-        Delay_ms(2000);
-        // Move back 12800 counts (negative direction), then wait 2000ms
-        MoveDistance(-12800);
-        Delay_ms(2000);
-        // Move back 6400 counts (negative direction), then wait 2000ms
-        MoveDistance(-6400);
-        Delay_ms(2000);
-        // Move back to the start (negative 6400 pulses), then wait 2000ms
-        MoveDistance(-6400);
-        Delay_ms(2000);
-    }
 }
  
 /*------------------------------------------------------------------------------
