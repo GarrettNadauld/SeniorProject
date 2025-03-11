@@ -1,0 +1,75 @@
+#define SerialPort ConnectorUsb
+
+// This example has built-in functionality to automatically clear motor alerts, 
+//  including motor shutdowns. Any uncleared alert will cancel and disallow motion.
+// WARNING: enabling automatic alert handling will clear alerts immediately when 
+//  encountered and return a motor to a state in which motion is allowed. Before 
+//  enabling this functionality, be sure to understand this behavior and ensure 
+//  your system will not enter an unsafe state. 
+// To enable automatic alert handling, #define HANDLE_ALERTS (1)
+// To disable automatic alert handling, #define HANDLE_ALERTS (0)
+#define HANDLE_ALERTS (0)
+
+// Define the velocity and acceleration limits to be used for each move
+const int32_t velocityLimit = 10000; // pulses per sec
+const int32_t accelerationLimit = 100000; // pulses per sec^2
+
+//Define constants for PDP90A
+const int32_t Lx = 10E-3; // Length of x axis in m
+const int32_t Ly = 10E-3; // Length of y axis in m
+const int32_t en = 300E-6; // Output noise voltage in Vrms
+const int32_t Xtol = 5; // X axis tolerance 
+const int32_t Ytol = 5; // Y axis tolerance
+
+// Digital input pin for the button
+const int buttonPin = 2;
+
+// Variables to store desired positions
+volatile int32_t desiredX = 0;
+volatile int32_t desiredY = 0;
+volatile bool positionRecorded = false;
+
+// Declares user-defined helper functions.
+// The definition/implementations of these functions are at the bottom of the sketch.
+bool SynchronizedMove(int32_t distance);
+void PrintAlerts();
+void RecordPositions();
+void MonitorPositions();
+
+void setup() {
+    pinMode(buttonPin, INPUT);
+    Serial.begin(9600);
+}
+
+void loop() {
+    if (digitalRead(buttonPin) == HIGH && !positionRecorded) {
+        RecordPositions();
+        positionRecorded = true;
+    }
+
+    if (positionRecorded) {
+        MonitorPositions();
+    }
+}
+
+void RecordPositions() {
+    // Assuming functions getXPosition() and getYPosition() return the current positions
+    desiredX = getXPosition();
+    desiredY = getYPosition();
+    Serial.println("Positions recorded.");
+}
+
+void MonitorPositions() {
+    int32_t currentX = getXPosition();
+    int32_t currentY = getYPosition();
+
+    if (abs(currentX - desiredX) > Xtol) {
+        // Step motor to return to desiredX
+        SynchronizedMove(desiredX - currentX);
+    }
+
+    if (abs(currentY - desiredY) > Ytol) {
+        // Step motor to return to desiredY
+        SynchronizedMove(desiredY - currentY);
+    }
+}
